@@ -11,8 +11,8 @@ let package = Package(
         .package(url: "https://github.com/vapor/console.git", from: "3.0.0"),
 
         // 🌎 Utility package containing tools for byte manipulation, Codable, OS APIs, and debugging.
-//      .package(url: "https://github.com/vapor/core.git", from: "3.0.0"),
-        .package(url: "https://github.com/mixio/core.git", .branch("mixio-dev")),
+        .package(url: "https://github.com/vapor/core.git", from: "3.0.0"),
+//      .package(url: "https://github.com/mixio/core.git", .branch("mixio-dev")),
 
         // 🔑 Hashing (BCrypt, SHA, HMAC, etc), encryption, and randomness.
         .package(url: "https://github.com/vapor/crypto.git", from: "3.0.0"),
