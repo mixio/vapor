@@ -52,13 +52,15 @@ public final class NIOServer: Server, ServiceType {
             for _ in 0..<config.workerCount {
                 // initialize each event loop
                 let eventLoop = group.next()
-                let subContainer = container.subContainer(on: eventLoop)
-                let responder = try subContainer.make(Responder.self)
                 // perform cache set on the event loop
-                try eventLoop.submit {
+                eventLoop.submit {
+                    let subContainer = self.container.subContainer(on: eventLoop)
+                    let responder = try subContainer.make(Responder.self)
                     containerCache.currentValue = ThreadContainer(container: subContainer)
                     responderCache.currentValue = ThreadResponder(responder: responder)
-                }.wait()
+                }.catch {
+                    ERROR("Could not boot EventLoop: \($0).")
+                }
             }
 
             // http upgrade
@@ -66,7 +68,7 @@ public final class NIOServer: Server, ServiceType {
 
             // web socket upgrade
             if let wss = try? container.make(WebSocketServer.self) {
-                let ws = HTTPServer.webSocketUpgrader(shouldUpgrade: { req in
+                let ws = HTTPServer.webSocketUpgrader(maxFrameSize: config.webSocketMaxFrameSize, shouldUpgrade: { req in
                     guard let subContainer = containerCache.currentValue?.container else {
                         ERROR("[WebSocket Upgrader] Missing container (shouldUpgrade).")
                         return nil

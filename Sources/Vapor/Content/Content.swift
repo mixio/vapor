@@ -31,7 +31,7 @@ public protocol Content: Codable, ResponseCodable, RequestCodable {
     ///     }
     ///
     ///     router.get("greeting2") { req in
-    ///         let res = req.makeResponse()
+    ///         let res = req.response()
     ///         try res.content.encode(Hello(), as: .json)
     ///         return res // {"message":"Hello!"}
     ///     }
@@ -62,7 +62,7 @@ extension Content {
     ///
     /// See `ResponseEncodable`.
     public func encode(for req: Request) throws -> Future<Response> {
-        let res = req.makeResponse()
+        let res = req.response()
         try res.content.encode(self)
         return Future.map(on: req) { res }
     }
@@ -180,7 +180,7 @@ extension Float: Content {
 extension Array: Content, RequestDecodable, RequestEncodable, ResponseDecodable, ResponseEncodable where Element: Content {
     /// See `Content`.
     public static var defaultContentType: MediaType {
-        return Element.defaultContentType
+        return .json
     }
 }
 

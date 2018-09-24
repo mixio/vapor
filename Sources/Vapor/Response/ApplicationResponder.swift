@@ -23,7 +23,7 @@ public struct ApplicationResponder: Responder, ServiceType {
     /// Creates a new `ApplicationResponder`.
     public init(_ router: Router, _ middleware: [Middleware] = []) {
         let router = RouterResponder(router: router)
-        let wrapped = middleware.makeResponder(chainedto: router)
+        let wrapped = middleware.makeResponder(chainingTo: router)
         self.responder = wrapped
     }
 
@@ -47,7 +47,7 @@ private struct RouterResponder: Responder {
     /// See `Responder`.
     func respond(to req: Request) throws -> Future<Response> {
         guard let responder = router.route(request: req) else {
-            let res = req.makeResponse(http: .init(status: .notFound, body: "Not found"))
+            let res = req.response(http: .init(status: .notFound, body: "Not found"))
             return req.eventLoop.newSucceededFuture(result: res)
         }
 

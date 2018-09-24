@@ -21,6 +21,10 @@ do {
     router.get("search") { req -> String in
         return try req.query.get(String.self, at: ["query"])
     }
+    
+    router.get("no-content") { req -> String in
+        throw Abort(.noContent)
+    }
 
     router.get("foo") { req -> String in
         let session = try req.session()
@@ -102,7 +106,7 @@ do {
         print(loginRequest.email) // user@vapor.codes
         print(loginRequest.password) // don't look!
 
-        return req.makeResponse()
+        return req.response()
     }
 
     router.get("string", String.parameter) { req -> String in
@@ -114,7 +118,7 @@ do {
     }
 
     router.get("fast") { req -> Response in
-        let res = req.makeResponse()
+        let res = req.response()
         res.http.body = HTTPBody(string: "123")
         return res
     }

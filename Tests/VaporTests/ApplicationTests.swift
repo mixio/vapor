@@ -68,10 +68,16 @@ class ApplicationTests: XCTestCase {
             router.get("hello", String.parameter) { req in
                 return try req.parameters.next(String.self)
             }
+            
+            router.get("raw", String.parameter, String.parameter) { req in
+                return req.parameters.rawValues(for: String.self)
+            }
         }
 
         try app.clientTest(.GET, "/hello/vapor", equals: "vapor")
         try app.clientTest(.POST, "/hello/vapor", equals: "Not found")
+        
+        try app.clientTest(.GET, "/raw/vapor/development", equals: "[\"vapor\",\"development\"]")
     }
 
     func testJSON() throws {
@@ -136,7 +142,7 @@ class ApplicationTests: XCTestCase {
 
         let app = try Application.makeTest { router in
             router.get("encode") { req -> Response in
-                let res = req.makeResponse()
+                let res = req.response()
                 try res.content.encode(FooContent())
                 try res.content.encode(FooContent(), as: .json)
                 try res.content.encode(FooEncodable(), as: .json)
@@ -324,11 +330,33 @@ class ApplicationTests: XCTestCase {
             XCTAssert(res.http.body.string.contains(test))
         }
     }
+    
+    func testStreamFileConnectionClose() throws {
+        let app = try Application.runningTest(port: 8087) { router in
+            router.get("file-stream") { req -> Future<Response> in
+                return try req.streamFile(at: #file)
+            }
+        }
+        
+        let client = try HTTPClient.connect(
+            scheme: .http,
+            hostname: "localhost",
+            port: 8087,
+            on: app,
+            onError: { XCTFail("\($0)") }
+        ).wait()
+        var req = HTTPRequest(method: .GET, url: "/file-stream")
+        req.headers.replaceOrAdd(name: .connection, value: "close")
+        let res = try client.send(req).wait()
+        let test = "the quick brown fox"
+        XCTAssertNotNil(res.headers[.eTag])
+        XCTAssert(res.body.string.contains(test))
+    }
 
     func testCustomEncode() throws {
         try Application.makeTest { router in
             router.get("custom-encode") { req -> Response in
-                let res = req.makeResponse(http: .init(status: .ok))
+                let res = req.response(http: .init(status: .ok))
                 try res.content.encode(json: ["hello": "world"], using: .custom(format: .prettyPrinted))
                 return res
             }
@@ -525,7 +553,7 @@ class ApplicationTests: XCTestCase {
         // without specific content type
         try Application.makeTest { router in
             router.get("hello") { req in
-                return req.makeResponse("Hello!")
+                return req.response("Hello!")
             }
         }.test(.GET, "hello") { res in
             XCTAssertEqual(res.http.status, .ok)
@@ -535,7 +563,7 @@ class ApplicationTests: XCTestCase {
         // with specific content type
         try Application.makeTest { router in
             router.get("hello-html") { req -> Response in
-                return req.makeResponse("Hey!", as: .html)
+                return req.response("Hey!", as: .html)
             }
         }.test(.GET, "hello-html") { res in
             XCTAssertEqual(res.http.status, .ok)
@@ -635,6 +663,81 @@ class ApplicationTests: XCTestCase {
         try req.query.encode(TestQueryStringContainer(name: "Vapor Test"))
         XCTAssertEqual(req.http.url.query, "name=Vapor%20Test")
     }
+    
+    func testErrorMiddlewareRespondsToNotFoundError() throws {
+        class NotFoundThrowingResponder: Responder {
+            func respond(to req: Request) throws -> EventLoopFuture<Response> {
+                throw NotFound(rootCause: nil)
+            }
+        }
+        let app = try Application()
+        let errorMiddleware = ErrorMiddleware.default(environment: app.environment, log: try app.make())
+
+        let result = try errorMiddleware.respond(to: Request(using: app), chainingTo: NotFoundThrowingResponder()).wait()
+
+        XCTAssertEqual(result.http.status, .notFound)
+    }
+    
+    // https://github.com/vapor/vapor/issues/1787
+    func testGH1787() throws {
+        try Application.runningTest(port: 8008, routes: { router in
+            router.get("no-content") { req -> String in
+                throw Abort(.noContent)
+            }
+        }).clientTest(.GET, "no-content", afterSend: { res in
+            XCTAssertEqual(res.http.status.code, 204)
+        })
+    }
+    
+    // https://github.com/vapor/vapor/issues/1786
+    func testMissingBody() throws {
+        struct User: Content { }
+        try Application.makeTest(routes: { router in
+            router.get("user") { req -> Future<User> in
+                return try req.content.decode(User.self)
+            }
+        }).test(.GET, "user", afterSend: { res in
+            XCTAssertEqual(res.http.status, .unsupportedMediaType)
+        })
+    }
+    
+    func testSwiftError() throws {
+        struct Foo: Error { }
+        try Application.makeTest(routes: { router in
+            router.get("error") { req -> String in
+                throw Foo()
+            }
+        }).test(.GET, "error", afterSend: { res in
+            XCTAssertEqual(res.http.status, .internalServerError)
+        })
+    }
+    
+    func testDebuggableError() throws {
+        struct Foo: Debuggable, Error {
+            var identifier: String
+            var reason: String
+            var sourceLocation: SourceLocation?
+            init(
+                identifier: String,
+                reason: String,
+                file: String = #file,
+                function: String = #function,
+                line: UInt = #line,
+                column: UInt = #column
+            ) {
+                self.identifier = identifier
+                self.reason = reason
+                self.sourceLocation = SourceLocation(file: file, function: function, line: line, column: column, range: nil)
+            }
+        }
+        try Application.makeTest(routes: { router in
+            router.get("error") { req -> String in
+                throw Foo(identifier: "test", reason: "For testing error output.")
+            }
+        }).test(.GET, "error", afterSend: { res in
+            XCTAssertEqual(res.http.status, .internalServerError)
+        })
+    }
 
     static let allTests = [
         ("testContent", testContent),
@@ -652,6 +755,7 @@ class ApplicationTests: XCTestCase {
         ("testURLEncodedFormEncode", testURLEncodedFormEncode),
         ("testURLEncodedFormDecodeQuery", testURLEncodedFormDecodeQuery),
         ("testStreamFile", testStreamFile),
+        ("testStreamFileConnectionClose", testStreamFileConnectionClose),
         ("testCustomEncode", testCustomEncode),
         ("testGH1609", testGH1609),
         ("testAnyResponse", testAnyResponse),
@@ -663,6 +767,11 @@ class ApplicationTests: XCTestCase {
         ("testMiddlewareOrder", testMiddlewareOrder),
         ("testSessionDestroy", testSessionDestroy),
         ("testRequestQueryStringPercentEncoding", testRequestQueryStringPercentEncoding),
+        ("testErrorMiddlewareRespondsToNotFoundError", testErrorMiddlewareRespondsToNotFoundError),
+        ("testGH1787", testGH1787),
+        ("testMissingBody", testMissingBody),
+        ("testSwiftError", testSwiftError),
+        ("testDebuggableError", testDebuggableError),
     ]
 }
 
@@ -717,9 +826,9 @@ private extension Application {
 
     // MARK: Live
 
-    static func runningTest(port: Int, configure: (Router) throws -> ()) throws -> Application {
+    static func runningTest(port: Int, routes: (Router) throws -> ()) throws -> Application {
         let router = EngineRouter.default()
-        try configure(router)
+        try routes(router)
         var services = Services.default()
         services.register(router, as: Router.self)
         let serverConfig = NIOServerConfig(
@@ -729,7 +838,8 @@ private extension Application {
             workerCount: 1,
             maxBodySize: 128_000,
             reuseAddress: true,
-            tcpNoDelay: true
+            tcpNoDelay: true,
+            webSocketMaxFrameSize: 1 << 14
         )
         services.register(serverConfig)
         let app = try Application.asyncBoot(config: .default(), environment: .xcode, services: services).wait()
@@ -737,12 +847,13 @@ private extension Application {
         return app
     }
 
+    @discardableResult
     func clientTest(
         _ method: HTTPMethod,
         _ path: String,
         beforeSend: (Request) throws -> () = { _ in },
         afterSend: (Response) throws -> ()
-    ) throws {
+    ) throws -> Application {
         let config = try make(NIOServerConfig.self)
         let path = path.hasPrefix("/") ? path : "/\(path)"
         let req = Request(
@@ -752,9 +863,11 @@ private extension Application {
         try beforeSend(req)
         let res = try FoundationClient.default(on: self).send(req).wait()
         try afterSend(res)
+        return self
     }
 
-    func clientTest(_ method: HTTPMethod, _ path: String, equals: String) throws {
+    @discardableResult
+    func clientTest(_ method: HTTPMethod, _ path: String, equals: String) throws -> Application {
         return try clientTest(method, path) { res in
             XCTAssertEqual(res.http.body.string, equals)
         }
