@@ -11,13 +11,15 @@ let package = Package(
         .package(url: "https://github.com/vapor/console.git", from: "3.0.0"),
 
         // 🌎 Utility package containing tools for byte manipulation, Codable, OS APIs, and debugging.
-        .package(url: "https://github.com/vapor/core.git", from: "3.0.0"),
+//      .package(url: "https://github.com/vapor/core.git", from: "3.0.0"),
+        .package(url: "https://github.com/mixio/core.git", .branch("mixio-dev")),
 
         // 🔑 Hashing (BCrypt, SHA, HMAC, etc), encryption, and randomness.
         .package(url: "https://github.com/vapor/crypto.git", from: "3.0.0"),
 
         // 🗄 Core services for creating database integrations.
-        .package(url: "https://github.com/vapor/database-kit.git", from: "1.0.0"),
+//      .package(url: "https://github.com/vapor/database-kit.git", from: "1.0.0"),
+        .package(url: "https://github.com/mixio/database-kit.git", .branch("mixio-dev")),
 
         // 🚀 Non-blocking, event-driven HTTP for Swift built on Swift NIO.
         .package(url: "https://github.com/vapor/http.git", from: "3.0.0"),
